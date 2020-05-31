@@ -28,22 +28,23 @@ func CreateTCPConn(addr string) (*net.TCPConn, error) {
     if err != nil {
         return nil, err
     }
-    tcpListener, err := net.DialTCP("tcp",nil, tcpAddr)
+    tcpConn, err := net.DialTCP("tcp",nil, tcpAddr)
     if err != nil {
         return nil, err
     }
-    return tcpListener, nil
+    return tcpConn, nil
 }
 
+//建立Tcp连接中转
 func Join2Conn(local *net.TCPConn, remote *net.TCPConn) {
     go joinConn(local, remote)
     go joinConn(remote, local)
 }
 
-func joinConn(local *net.TCPConn, remote *net.TCPConn) {
-    defer local.Close()
-    defer remote.Close()
-    _, err := io.Copy(local, remote)
+func joinConn(conn1 *net.TCPConn, conn2 *net.TCPConn) {
+    defer conn1.Close()
+    defer conn2.Close()
+    _, err := io.Copy(conn1, conn2)
     if err != nil {
         log.Println("copy failed ", err.Error())
         return

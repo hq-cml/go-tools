@@ -2,6 +2,7 @@ package main
 
 import (
     "bufio"
+    "fmt"
     "io"
     "log"
     "net"
@@ -10,17 +11,20 @@ import (
 )
 
 var (
-    // 本地需要暴露的服务端口
-    localServerAddr = "127.0.0.1:32768"
+    // 本地内网服务端口
+    localServerAddr = "127.0.0.1:81"
 
-    remoteIP = "111.111.111.111"
     // 远端的服务控制通道，用来传递控制信息，如出现新连接和心跳
-    remoteControlAddr = remoteIP + ":8009"
+    //remoteControlAddr = "111.111.111.111:8009"
+    remoteControlAddr = "127.0.0.1:8009"
+
     // 远端服务端口，用来建立隧道
-    remoteServerAddr  = remoteIP + ":8008"
+    //remoteServerAddr  = "111.111.111.111:8008"
+    remoteServerAddr  = "127.0.0.1:8008"
 )
 
 func main() {
+    //和远端服务建立控制连接
     tcpConn, err := network.CreateTCPConn(remoteControlAddr)
     if err != nil {
         log.Println("[连接失败]" + remoteControlAddr + err.Error())
@@ -35,8 +39,10 @@ func main() {
             break
         }
 
+        fmt.Println("Recv ControlMsg:", s)
+
         // 当有新连接信号出现时，新建一个tcp连接
-        if s == network.NewConnection+"\n" {
+        if s == network.NewConnection + "\n" {
             go connectLocalAndRemote()
         }
     }
@@ -49,8 +55,10 @@ func connectLocalAndRemote() {
     remote := connectRemote()
 
     if local != nil && remote != nil {
+        //建立tcp连接中转
         network.Join2Conn(local, remote)
     } else {
+        //异常处理
         if local != nil {
             _ = local.Close()
         }
@@ -60,6 +68,7 @@ func connectLocalAndRemote() {
     }
 }
 
+//建立和本地内网服务的连接
 func connectLocal() *net.TCPConn {
     conn, err := network.CreateTCPConn(localServerAddr)
     if err != nil {
@@ -68,6 +77,7 @@ func connectLocal() *net.TCPConn {
     return conn
 }
 
+//建立和远端的隧道连接
 func connectRemote() *net.TCPConn {
     conn, err := network.CreateTCPConn(remoteServerAddr)
     if err != nil {
