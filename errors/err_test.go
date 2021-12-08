@@ -1,4 +1,4 @@
-package pkgerrors
+package errors
 
 import "testing"
 
