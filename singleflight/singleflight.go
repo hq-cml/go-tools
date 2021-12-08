@@ -11,18 +11,18 @@
  * 本地并发控制，如果不自己搞锁，那么用singleflight包也可以搞
  * 整个包的核心代码不到100行，充分利用到了map和WaitGroup的特性。
  */
-package single_flight
+package singleflight
 
 import (
     "errors"
-    "golang.org/x/sync/singleflight"
+    sf "golang.org/x/sync/singleflight"
     "log"
     "sync/atomic"
 )
 
 var term uint32
 var errNoExist = errors.New("not exist in cache")
-var gsfGrp singleflight.Group
+var gsfGrp sf.Group
 
 // 模拟数据的获取
 // 通常都是先读取缓存，然后如果缓存不存在，则读db
