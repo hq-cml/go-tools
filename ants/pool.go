@@ -1,13 +1,14 @@
 /*
- * 自己封装一个协程池
+ * 封装一个协程池，底层用的是ants库
  */
 package ants
 
 import (
 	"context"
-	"github.com/panjf2000/ants/v2"
-	"time"
 	"errors"
+	"github.com/panjf2000/ants/v2"
+	"log"
+	"time"
 )
 
 type GoPool interface {
@@ -15,66 +16,89 @@ type GoPool interface {
 	Submit(ctx context.Context, task func() error)
 }
 
-type options struct {
+type conf struct {
 	Workers         int `json:"workers"`
 	Retries         int `json:"retries"`
-	RetryIntervalMs int `json:"retry_interval_ms"`
+	RetryIntervalMs time.Duration `json:"retry_interval_ms"`
+	SubmitNonBlock  bool `json:"submit_non_block"`   // 当协程池满了之后，如何处理，默认是阻塞处理，即会一直等待
+	SubmitRetryIntervalMs time.Duration `json:"retry_interval_ms"` // 当协程池满了之后，如果是非阻塞，则定期重新尝试submit
 }
 
 type goPool struct {
-	name    string
-	pool    *ants.Pool
-	options *options
+	name string
+	pool *ants.Pool
+	conf *conf
 }
 
-// New 构造函数
-func New(name string, workers, retries, retryInterval int) GoPool {
-	pool, err := ants.NewPool(workers)
+// New 新建协程池
+func New(name string, workers, retries, retryIntervalMs int,
+		submitNonBlock bool, submitRetryIntervalMs int) GoPool {
+	var antsOpts []ants.Option
+	submitRetry := time.Duration(submitRetryIntervalMs) * time.Millisecond
+	if submitNonBlock {
+		antsOpts = append(antsOpts, ants.WithNonblocking(true))
+		if submitRetryIntervalMs == 0 {
+			submitRetry = 10 * time.Millisecond
+		}
+	}
+	pool, err := ants.NewPool(workers, antsOpts...)
 	if err != nil {
 		return nil
 	}
 	return &goPool{
 		pool: pool,
 		name: name,
-		options: &options{
+		conf: &conf{
 			Workers:         workers,
 			Retries:         retries,
-			RetryIntervalMs: retryInterval,
+			RetryIntervalMs: time.Duration(retryIntervalMs)*time.Millisecond,
+			SubmitNonBlock: submitNonBlock,
+			SubmitRetryIntervalMs: submitRetry,
 	}}
 }
 
-// Submit 实现 API 接口的 Submit 方法
-func (a *goPool) Submit(ctx context.Context, task func() error) {
+// Submit 实现 GoPool 接口的 Submit 方法
+// 这里submit实现了同步阻塞的提交方式，如果pool没有设置submitNonBlock，则天然阻塞
+// 如果设置了submitNonBlock，则这里通过自旋等待的方式，实现了阻塞，留出一个口子可以做一点其他事情
+func (p *goPool) Submit(ctx context.Context, task func() error) {
 	for {
-		err := a.pool.Submit(func() {
+		err := p.pool.Submit(func() {
 			err := tryDo(
 				ctx,
 				task,
-				a.options.Retries,
-				time.Duration(a.options.RetryIntervalMs)*time.Millisecond)
+				p.conf.Retries,
+				p.conf.RetryIntervalMs)
 			if err != nil {
-				//log.Errorf("AsyncTask[%v] execute error:%v", a.name, err)
+				log.Printf("AsyncTask[%v] execute error:%v", p.name, err)
 			}
 		})
+		// 当设置了submitNonBlock，且协程池满了之后，会出现ErrPoolOverload错误，则sleep等待
+		if err != nil && errors.Is(err, ants.ErrPoolOverload) {
+			time.Sleep(p.conf.SubmitRetryIntervalMs)
+			// TODO 可以做一点其他事情
+			continue
+		}
 		if err != nil {
-			//log.Errorf("AsyncTask[%v] submit error:%v", a.name, err)
+			log.Printf("AsyncTask[%v] submit error:%v", p.name, err)
 		}
-		if !errors.Is(err, ants.ErrPoolOverload) {
-			return
-		}
-		time.Sleep(time.Duration(a.options.RetryIntervalMs) * time.Millisecond)
+		return
 	}
 }
 
+// 执行提交的任务，如果失败则按失败次数重试
 func tryDo(ctx context.Context, task func() error, times int, interval time.Duration) error {
 	i := 0
-	for err := task(); err != nil; i++ {
-		//log.Errorf("task execute err:%v", err)
-		ctx = context.Background()
+	for  {
+		err := task()
+		if err == nil{
+			return nil
+		}
+		log.Printf("task execute err:%v", err)
+		// ctx = context.Background()
 		if i >= times { // 放弃重试
 			return err
 		}
+		i++
 		time.Sleep(interval)
 	}
-	return nil
 }
