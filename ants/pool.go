@@ -31,13 +31,13 @@ type goPool struct {
 }
 
 // New 新建协程池
-func New(name string, workers, retries, retryIntervalMs int,
-		submitNonBlock bool, submitRetryIntervalMs int) GoPool {
+func New(name string, workers, retries, retryIntervalMs int, opts ...Option) GoPool {
+	paramOptions := reloadOptions(opts...)
 	var antsOpts []ants.Option
-	submitRetry := time.Duration(submitRetryIntervalMs) * time.Millisecond
-	if submitNonBlock {
+	submitRetry := time.Duration(paramOptions.SubmitRetryIntervalMs) * time.Millisecond
+	if paramOptions.SubmitNonBlock {
 		antsOpts = append(antsOpts, ants.WithNonblocking(true))
-		if submitRetryIntervalMs == 0 {
+		if paramOptions.SubmitRetryIntervalMs == 0 {
 			submitRetry = 10 * time.Millisecond
 		}
 	}
@@ -52,7 +52,7 @@ func New(name string, workers, retries, retryIntervalMs int,
 			Workers:         workers,
 			Retries:         retries,
 			RetryIntervalMs: time.Duration(retryIntervalMs)*time.Millisecond,
-			SubmitNonBlock: submitNonBlock,
+			SubmitNonBlock: paramOptions.SubmitNonBlock,
 			SubmitRetryIntervalMs: submitRetry,
 	}}
 }
@@ -76,6 +76,7 @@ func (p *goPool) Submit(ctx context.Context, task func() error) {
 		if err != nil && errors.Is(err, ants.ErrPoolOverload) {
 			time.Sleep(p.conf.SubmitRetryIntervalMs)
 			// TODO 可以做一点其他事情
+			//log.Println("Have no enough goroutine. wait a little time")
 			continue
 		}
 		if err != nil {
