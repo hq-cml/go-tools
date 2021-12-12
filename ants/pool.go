@@ -1,5 +1,6 @@
 /*
  * 封装一个协程池，底层用的是ants库
+ * 注意: ants只是并发度的控制，它不能取代同步机制(如sync.WaitGroup)
  */
 package ants
 
