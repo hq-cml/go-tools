@@ -48,4 +48,7 @@ func Test_pickIntVal(t *testing.T) {
 
 func Test_filterByPredicate(t *testing.T) {
 	filterByPredicate(dataStr, `$.store.book[?(@.price < $.expensive)].price`)
+	filterByPredicate(dataStr, `$.store.book[?(@.price > 10)].title`)
+	filterByPredicate(dataStr, `$.store.book[0:2].price`)
+	filterByPredicate(dataStr, `$.expensive`)  // 10
 }

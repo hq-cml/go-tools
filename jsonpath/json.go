@@ -22,42 +22,51 @@ import (
 // 根据路径找到指定的值
 func pickValByPath(dataStr string, path string) (interface{}, error){
 	// 数据准备把字符串转换到对象内存储
-	var json_data interface{}
-	err := json.Unmarshal([]byte(dataStr), &json_data)
+	var jsonData interface{}
+	err := json.Unmarshal([]byte(dataStr), &jsonData)
 	if err != nil {
 		return nil, err
 	}
 
-	res, err := jsonpath.JsonPathLookup(json_data, path)
+	res, err := jsonpath.JsonPathLookup(jsonData, path)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("step 1 res: %v\n", path)
-	fmt.Println(res)
-	fmt.Println(reflect.TypeOf(res))
+	fmt.Printf("step 1 res: %v, path:%v, type:%v\n",
+		res,  path, reflect.TypeOf(res))
 	return res, nil
 }
 
 // 条件过滤
 func filterByPredicate(dataStr string, filterStr string)  {
-	var json_data interface{}
-	err := json.Unmarshal([]byte(dataStr), &json_data)
+	var jsonData interface{}
+	err := json.Unmarshal([]byte(dataStr), &jsonData)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
 	//or reuse lookup pattern
-	pat, err := jsonpath.Compile(filterStr)
+	pattern, err := jsonpath.Compile(filterStr)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	res, err := pat.Lookup(json_data)
+	res, err := pattern.Lookup(jsonData)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println("step 2 res:")
-	fmt.Println(res)
+
+	switch data := res.(type) {
+	case []interface{}:
+		fmt.Printf("filter res: %v, Type:[]interface{}, len: %d\n",
+			data, len(data))
+		for k, v := range data {
+			fmt.Println("   ", k, ":", v)
+		}
+	default:
+		fmt.Printf("filter res: %v, Type: %v\n", data, reflect.TypeOf(res))
+	}
+
 }
