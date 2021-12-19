@@ -12,7 +12,7 @@ func TestCache(t *testing.T) {
 		1024*10,
 		4096,
 		5*time.Second,
-		3*time.Second,
+		2*time.Second,
 	)
 	if err != nil {
 		t.Error(err)
