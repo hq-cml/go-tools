@@ -10,6 +10,7 @@ require (
 	github.com/oliveagle/jsonpath v0.0.0-20180606110733-2e52cf6e6852
 	github.com/panjf2000/ants/v2 v2.4.7
 	github.com/pkg/errors v0.9.1
+	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
 	github.com/spf13/cast v1.4.1
 	golang.org/x/crypto v0.18.0 // indirect
 	golang.org/x/sync v0.1.0
