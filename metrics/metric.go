@@ -76,6 +76,7 @@ func UseCounter() {
 }
 
 // 速率统计
+// 参考Timer去理解
 func UseMeter() {
 	m := metrics.NewMeter()
 	metrics.GetOrRegister("rate.requests", m)
@@ -87,6 +88,7 @@ func UseMeter() {
 }
 
 // 直方图
+// 参考Timer去理解
 func UseHistogram() {
 	//Histogram需要一个采样算法，go-metrics内置了ExpDecaySample采样
 	s := metrics.NewExpDecaySample(1028, 0.015)
@@ -108,22 +110,30 @@ func UseHistogram() {
 	time.Sleep(100 * time.Second)
 }
 
-// 同时得到直方图和速率统计
+// Timer其实是 Histogram 和 Meter 的结合，同时得到直方图和速率统计
+// 注意：Timer这个东西，通常其实是统计的请求耗时，m.Update(xxx)的参数原型，是一个time.duration
+//      对于直方图，比较容易理解，就是按照百分比来分布请求耗时
+//      对于Meter，则和请求耗时无关，而是通过请求次数来得到QPS
+//                注意这里是QPS！无论是1分钟，5分钟，15分钟，都是QPS
 func UseTimer() {
 	m := metrics.NewTimer()
 	metrics.GetOrRegister("timer.requests", m)
-	go metrics.Log(metrics.DefaultRegistry, 10*time.Second, log.Default())
+	go metrics.Log(metrics.DefaultRegistry, 5*time.Second, log.Default())
 
-	m.Update(1)
-	m.Update(2)
-	m.Update(3)
-	m.Update(4)
-	m.Update(5)
-	m.Update(6)
-	m.Update(7)
-	m.Update(8)
-	m.Update(9)
-	m.Update(10)
+	// case1: 查看请求耗时的到直方图的效果，比较容易理解，就是按照百分比来分布
+	//a := 1
+	//for i := 0; i < 100; i++ {
+	// //m.Update(time.Duration(a) * time.Second)
+	// m.Update(50 * time.Millisecond)
+	// a++
+	//}
+
+	// case2: 查看和请求耗时无关，而是通过请求次数来得到QPS
+	//        可以看到随着时间增长，count是不断累积增长的，但是rate是恒定的，因为这里m.Update的速率是恒定的
+	for i := 0; i < 100; i++ {
+		m.Update(100 * time.Millisecond) // 参数原型，是一个time.duration
+		time.Sleep(500 * time.Millisecond)
+	}
 
 	time.Sleep(100 * time.Second)
 }
