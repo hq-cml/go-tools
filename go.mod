@@ -12,6 +12,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
 	github.com/spf13/cast v1.4.1
+	github.com/wsddn/go-ecdh v0.0.0-20161211032359-48726bab9208 // indirect
 	golang.org/x/crypto v0.18.0 // indirect
 	golang.org/x/sync v0.1.0
 	golang.org/x/time v0.0.0-20211116232009-f0f3c7e86c11

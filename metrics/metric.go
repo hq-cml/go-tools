@@ -112,9 +112,10 @@ func UseHistogram() {
 
 // Timer其实是 Histogram 和 Meter 的结合，同时得到直方图和速率统计
 // 注意：Timer这个东西，通常其实是统计的请求耗时，m.Update(xxx)的参数原型，是一个time.duration
-//      对于直方图，比较容易理解，就是按照百分比来分布请求耗时
-//      对于Meter，则和请求耗时无关，而是通过请求次数来得到QPS
-//                注意这里是QPS！无论是1分钟，5分钟，15分钟，都是QPS
+//
+//	对于直方图，比较容易理解，就是按照百分比来分布请求耗时
+//	对于Meter，则和请求耗时无关，而是通过请求次数来得到QPS
+//	          注意这里是QPS！无论是1分钟，5分钟，15分钟，都是QPS
 func UseTimer() {
 	m := metrics.NewTimer()
 	metrics.GetOrRegister("timer.requests", m)
