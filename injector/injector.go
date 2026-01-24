@@ -25,9 +25,8 @@ func (o Object) String() string {
 
 // NewGraph 创建新的依赖注入图
 // 本质上它是一个Map（带插入顺序的map），它的Key有两种情况：
-//
-//	refType => *Object
-//	tagString => *Object  // 这里的tagString是`inject`
+// refType => *Object
+// tagString => *Object  // 这里的tagString是`inject`
 func newGraph() *Graph {
 	g := &Graph{
 		container: orderMap.NewOrderedMap(),
@@ -36,8 +35,9 @@ func newGraph() *Graph {
 }
 
 // getTypeName 获取类型的完整名称，包括包路径和指针信息
-// 这个值将作为key 在graph中查找对象
-// TODO 注释一些例子
+// 这个值将作为key在graph中查找对象
+// eg1: github.com/hq-cml/go-tools/injector.MyT
+// eg2: *github.com/hq-cml/go-tools/injector.MyT
 func getTypeName(t reflect.Type) string {
 	isPtr := false
 	if t.Kind() == reflect.Ptr {
@@ -81,8 +81,8 @@ func (g *Graph) findByType(t reflect.Type) (*Object, bool) {
 
 // FindByType 根据类型查找对象
 func (g *Graph) FindByType(t reflect.Type) (*Object, bool) {
-	g.l.RLock()
-	defer g.l.RUnlock()
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 	return g.findByType(t)
 }
 
@@ -93,16 +93,16 @@ func (g *Graph) _len() int {
 
 // Len 返回图中对象的数量
 func (g *Graph) Len() int {
-	g.l.RLock()
-	defer g.l.RUnlock()
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 	return g._len()
 }
 
 // Find 根据名称查找对象
 // 这里的参数name，通常是一个符合getTypeName()返回的值 or 一个inject的tag值
 func (g *Graph) Find(name string) (*Object, bool) {
-	g.l.RLock()
-	defer g.l.RUnlock()
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 	return g.find(name)
 }
 
@@ -116,8 +116,8 @@ func (g *Graph) set(name string, o *Object) {
 	g.container.Set(name, o)
 }
 
-// setboth 同时按名称和类型（只有在o.refType是对象指针）设置对象
-// 因为graph同时支持按照inject的tag和类型注册查找
+// setboth 设置name的同时，如果如果o.refType是对象指针，则设置类型
+// （因为graph同时支持按照inject tag和类型注册查找）
 func (g *Graph) setboth(name string, o *Object) {
 	g.container.Set(name, o)
 	if isStructPtr(o.refType) {
@@ -147,8 +147,9 @@ func isZeroOfUnderlyingType(x interface{}) bool {
 	}
 
 	// 指针、接口、通道、映射、切片等类引用型先检查是否为nil
-	if (k == reflect.Ptr || k == reflect.Interface || k == reflect.Chan ||
-		k == reflect.Map || k == reflect.Slice) && rvf.IsNil() {
+	if (k == reflect.Ptr || k == reflect.Interface ||
+		k == reflect.Chan || k == reflect.Map || k == reflect.Slice) &&
+		rvf.IsNil() {
 		return true
 	}
 
@@ -162,7 +163,7 @@ func isZeroOfUnderlyingType(x interface{}) bool {
 		}
 	}
 
-	// 其他类型，通过reflect.Zero获取零值进行比较
+	// 其他类型（比如普通的数字等等）通过reflect.Zero获取零值进行比较
 	return x == reflect.Zero(reflect.TypeOf(x)).Interface()
 }
 
@@ -178,15 +179,18 @@ func canNil(v interface{}) bool {
 	return k == reflect.Ptr || k == reflect.Interface
 }
 
-// register 核心实现：
-// 注册一个对象到图中，支持依赖注入和单例模式
-// 如果value是nil的，会自动化创建空结构，并且本逻辑是递归的
+// isStructPtr 判断类型是否为结构体指针
+func isStructPtr(t reflect.Type) bool {
+	return t.Kind() == reflect.Ptr && t.Elem().Kind() == reflect.Struct
+}
+
+// register 核心实现：注册一个对象到图中
 // 参数:
 //
 //	name      - 对象名称（通常来说，它是一个inject tag)，如果为空且value是结构体指针，则使用类型名
-//	value     - 要注册的对象值
-//	singleton - 是否为单例模式
-//	skipFill  - 顶层意愿，是否跳过填充：
+//	value     - 要注册的对象值，如果value是nil的，会自动化创建空结构，并且本逻辑是递归的
+//	singleton - 是否为单例模式，TODO 测试
+//	skipFill  - 顶层意愿，是否跳过填充结构体的子字段，通常这个参数常用的是false
 //	 如果是true，则跳过填充子字段（无需创建的时候）；
 //	 如果为false，则无条件填充子字段
 //
@@ -200,12 +204,10 @@ func (g *Graph) register(name string, value interface{}, singleton bool, skipFil
 	// 修正name值
 	// 如果是结构体指针类型且名称为空，则自动获取类型名称，替代name
 	// 如果不是结构体指针类型且名称为空，则返回错误（非结构体指针类型必须提供明确的名称）
-	if isStructPtr(reflectType) {
-		if name == "" {
+	if name == "" {
+		if isStructPtr(reflectType) {
 			name = getTypeName(reflectType)
-		}
-	} else {
-		if name == "" {
+		} else {
 			return nil, fmt.Errorf("name can not be empty,name=%s,type=%v", name, reflectType)
 		}
 	}
@@ -223,7 +225,7 @@ func (g *Graph) register(name string, value interface{}, singleton bool, skipFil
 	}
 
 	// 如果是结构体的指针，则会进入一个较为复杂的循环递归逻辑
-	// 如果非结构体指针，则
+	// 如果非结构体指针，则会尝试直接赋值value（满足一个先决判断）
 	if isStructPtr(obj.refType) {
 		// 获取实际指向的结构体的reflect.Type
 		t := reflectType.Elem()
@@ -243,52 +245,54 @@ func (g *Graph) register(name string, value interface{}, singleton bool, skipFil
 
 		// 遍历结构体字段进行依赖注入
 		for i := 0; i < t.NumField(); i++ {
-			// 如果不需要创建 && 顶层意愿是跳过填充=> 跳过填充
+			// 如果不需要创建 and 顶层意愿是跳过字段填充=> 跳过填充
 			if !needCreate && skipFill {
 				continue
 			}
 
-			// 到此，需要创建 || 顶层意愿是不跳过填充 => 填充
-			f := t.Field(i)
+			// 到此，需要创建 or 顶层意愿是不跳过填充 => 填充
+			fieldType := t.Field(i)
 			vfe := v.Elem()
-			vf := vfe.Field(i)
+			fieldValue := vfe.Field(i)
 
 			// 到此：
-			// f：具体字段的reflect.Type
-			// vf：具体字段的reflect.Value
+			// fieldType：具体字段的StructFiled
+			// fieldValue：具体字段的reflect.Value
 
 			// 如果字段已经填充，则跳过
-			if vf.CanInterface() {
-				if !isZeroOfUnderlyingType(vf.Interface()) {
+			if fieldValue.CanInterface() {
+				if !isZeroOfUnderlyingType(fieldValue.Interface()) {
+					// TODO 测试覆盖
 					continue
 				}
 			}
 
-			// 如果字段是匿名字段 or 不可设置，则返回错误 TODO 测试（如果具体字段是一个指针？）
-			if f.Anonymous || !vf.CanSet() {
-				return nil, fmt.Errorf("inject injectTag must on a public field!field=%s,type=%s", f.Name, t.Name())
+			// 如果字段是匿名字段 or 不可设置，则返回错误
+			// TODO 测试（如果具体字段是一个指针？）
+			if fieldType.Anonymous || !fieldValue.CanSet() {
+				return nil, fmt.Errorf("inject injectTag must on a public field!field=%s,type=%s", fieldType.Name, t.Name())
 				// continue // useless code
 			}
 
-			// 抽取singleton的tag
-			_, singletonStr, _ := structtag.Extract("singleton", string(f.Tag))
+			// 抽取singleton tag
+			_, singletonStr, _ := structtag.Extract("singleton", string(fieldType.Tag))
 			singletonTag := false // 默认非单例
 			if singletonStr == "true" {
 				singletonTag = true
 			}
 
 			// 抽取cannil和nilable的tag，确定canNil
-			_, canNilStr, _ := structtag.Extract("cannil", string(f.Tag))
-			_, nilableStr, _ := structtag.Extract("nilable", string(f.Tag))
+			_, canNilStr, _ := structtag.Extract("cannil", string(fieldType.Tag))
+			_, nilableStr, _ := structtag.Extract("nilable", string(fieldType.Tag))
 			canNil := false
 			if canNilStr == "true" || nilableStr == "true" {
 				canNil = true
 			}
 
-			// 抽取出inject的tag
-			ok, injectTag, err := structtag.Extract("inject", string(f.Tag))
+			// 抽取出inject tag
+			ok, injectTag, err := structtag.Extract("inject", string(fieldType.Tag))
 			if err != nil {
-				return nil, fmt.Errorf("extract injectTag fail,f=%s,err=%v", f.Name, err)
+				return nil, fmt.Errorf("extract injectTag fail,f=%s,err=%v", fieldType.Name, err)
 			}
 			if !ok {
 				continue
@@ -299,33 +303,35 @@ func (g *Graph) register(name string, value interface{}, singleton bool, skipFil
 			if injectTag != "" {
 				// 先按照tag来查找，如果找不到且还是单例模式，则按照类型再给一次查找机会
 				found, ok = g.find(injectTag)
-				if !ok && singletonTag && isStructPtr(f.Type) {
-					found, ok = g.findByType(f.Type)
+				if !ok && singletonTag && isStructPtr(fieldType.Type) {
+					found, ok = g.findByType(fieldType.Type)
 				}
 			} else {
-				found, ok = g.findByType(f.Type)
+				found, ok = g.findByType(fieldType.Type)
 			}
 
-			// 如果在当前graph中找不到，则递归得去动态注入
+			// 如果在当前graph中找不到，说明没有前置注册过，则递归得去动态注入
 			if !ok || found == nil {
-				// 如果允许为nil，说明容忍nil，则不会动态注入 TODO 测试
+				// 如果允许为nil，说明容忍nil，则不会动态注入
+				// TODO 测试
 				if canNil {
 					continue
 				}
 
 				// 如果子字段本身是指向结构的指针，则动态创建一个结构体
 				// 否则，需要依赖implmap去继续注册的流程
-				if isStructPtr(f.Type) {
+				if isStructPtr(fieldType.Type) {
 					// 参照：Test_ReflectNewAt
 					// 这里用NewAt，封装出了一个空指针的Value然后还原interface{}
 					// 这就相当于创建了 var ptr *<T>，递归进去之后，再由里层去动态创建
 					// TODO 测试
-					_, err := g.register(injectTag, reflect.NewAt(f.Type.Elem(), nil).Interface(), singletonTag, skipFill)
+					_, err := g.register(injectTag, reflect.NewAt(fieldType.Type.Elem(), nil).Interface(), singletonTag, skipFill)
 					if err != nil {
 						return nil, err
 					}
 				} else {
-					// 到此，f.Type不是一个指针，那大概率是一个接口，需要去implmap中寻找
+					// 到此，f.Type不是一个指针，那大概率是一个接口之类的，需要去implmap中寻找
+					// TODO 为什么不会是其他普通类型？
 					var implFound reflect.Type
 					impls := implmap.Get(injectTag)
 
@@ -335,7 +341,7 @@ func (g *Graph) register(name string, value interface{}, singleton bool, skipFil
 							continue
 						}
 						// 检查impl是否实现了目标接口
-						if impl.AssignableTo(f.Type) {
+						if impl.AssignableTo(fieldType.Type) {
 							implFound = impl
 							break
 						}
@@ -349,33 +355,33 @@ func (g *Graph) register(name string, value interface{}, singleton bool, skipFil
 							return nil, err
 						}
 					} else {
-						return nil, fmt.Errorf("dependency field=%s,injectTag=%s not found in object %s:%v", f.Name, injectTag, name, reflectType)
+						return nil, fmt.Errorf("dependency field=%s,injectTag=%s not found in object %s:%v", fieldType.Name, injectTag, name, reflectType)
 					}
 				}
 
 				// 到此处，递归已经结束，正常情况下injectTag已经应该成功注册，所以进行最终确认查找
-				// ?? 这里的singleton为什么不是singletonTag，而是参数singleton，感觉不太对 ??
+				// ?? 这里的singleton为什么不是singletonTag，而是参数singleton，感觉不太对 ?? // TODO 测试
 				if injectTag != "" {
 					found, ok = g.find(injectTag)
 					if !ok && singleton {
-						found, ok = g.findByType(f.Type)
+						found, ok = g.findByType(fieldType.Type)
 					}
 				} else {
-					found, ok = g.findByType(f.Type)
+					found, ok = g.findByType(fieldType.Type)
 				}
 			}
 
 			// 仍然没找到，说明尝试填充失败，则出现问题了，返回错误
 			if !ok || found == nil {
-				return nil, fmt.Errorf("dependency %s not found in object %s:%v", f.Name, name, reflectType)
+				return nil, fmt.Errorf("dependency %s not found in object %s:%v", fieldType.Name, name, reflectType)
 			}
 
 			// 这里有点晦涩，如果成功找到了，只能说明是在graph中动态注册了，但是实际上此时字段本身还是空着
-			// 所以，需要设置vf（具体字段的reflect.Value）
+			// 所以，需要设置fieldValue（具体字段的reflect.Value）
 			// 先类型检查，相当于是检查自动动态化注册的对象的类型，和目标字段的类型是否一致
 			// 如果不一致，则需要抢救一下，比如对于数字系列，强转确保类型匹配
 			reflectFoundValue := reflect.ValueOf(found.Value)
-			if !found.refType.AssignableTo(f.Type) {
+			if !found.refType.AssignableTo(fieldType.Type) {
 				// 处理类型转换，如不同大小的整数或浮点数类型
 				switch reflectFoundValue.Kind() {
 				case reflect.Int:
@@ -388,7 +394,7 @@ func (g *Graph) register(name string, value interface{}, singleton bool, skipFil
 					fallthrough
 				case reflect.Int64: // 所有的int系列，都按照int64处理
 					iv := reflectFoundValue.Int()
-					switch f.Type.Kind() {
+					switch fieldType.Type.Kind() {
 					case reflect.Int:
 						fallthrough
 					case reflect.Int8:
@@ -398,46 +404,47 @@ func (g *Graph) register(name string, value interface{}, singleton bool, skipFil
 					case reflect.Int32:
 						fallthrough
 					case reflect.Int64:
-						vf.SetInt(iv)
+						fieldValue.SetInt(iv)
 					default:
-						return nil, fmt.Errorf("dependency name=%s,type=%v not valid in object %s:%v", f.Name, f.Type, name, reflectType)
+						return nil, fmt.Errorf("dependency name=%s,type=%v not valid in object %s:%v", fieldType.Name, fieldType.Type, name, reflectType)
 					}
 				case reflect.Float32:
 					fallthrough
 				case reflect.Float64: // 所有的float系列，都按照float64处理
 					fv := reflectFoundValue.Float()
-					switch f.Type.Kind() {
+					switch fieldType.Type.Kind() {
 					case reflect.Float32:
 						fallthrough
 					case reflect.Float64:
-						vf.SetFloat(fv)
+						fieldValue.SetFloat(fv)
 					default:
-						return nil, fmt.Errorf("dependency name=%s,type=%v not valid in object %s:%v", f.Name, f.Type, name, reflectType)
+						return nil, fmt.Errorf("dependency name=%s,type=%v not valid in object %s:%v", fieldType.Name, fieldType.Type, name, reflectType)
 					}
 				default:
-					return nil, fmt.Errorf("dependency name=%s,type=%v not valid in object %s:%v", f.Name, f.Type, name, reflectType)
+					return nil, fmt.Errorf("dependency name=%s,type=%v not valid in object %s:%v", fieldType.Name, fieldType.Type, name, reflectType)
 				}
 			} else {
-				vf.Set(reflectFoundValue)
+				fieldValue.Set(reflectFoundValue)
 			}
 		}
 		// 到这里，整个结构体的各个字段已经递归动态创建完毕了
 		// 这个结构体自身也要填充到Object的Value中
 		obj.Value = v.Interface()
 	} else {
-		// 说明待注册的实体非结构体指针，那么它可能是一个结构体，一个普通变量。。。
-		// 先判断：如果canNil(是指针或者接口类型），则不能为nil，否则报错
-		// 直接赋值value
+		// 说明待注册的实体非结构体指针，那么它可能是一个结构体，一个普通变量，一个接口的变量。。。
+		// 需要满足先决判断：value的类型，如果canNil(是指针或者接口类型），则不能为nil，否则报错
+		// 满足先决条件，直接赋值value
 		// TODO：
 		// if inejection type is a struct(not a pointer), we should create a new struct every time when a inject tag is found
-		// and no *Object is created and the created struct should NOT be set into graph.named(or there will be a memory leak)!
+		// and no *Object is created and the created struct should NOT be set into graph.container(or there will be a memory leak)!
 		// same as a bean's prototype scope in spring
 		// otherwise all inject dependency will behave like spring's singleton bean scope
 		// 如果注入类型是结构体（非指针），当使用inject标签时，应该每次创建新结构体
-		// 同时，不应该创建*Object，并且创建的结构体不应该被注册到graph.named中，否则将造成内存泄漏
-		// 就和Spring中的bean原型作用域一样
-		// 否则，所有注入的依赖都将表现得像Spring的单例bean作用域
+		// 同时，不应该创建*Object，并且创建的结构体不应该被注册到graph.container中，否则将造成内存泄漏
+		// 就和Spring中的bean原型作用域一样，否则，所有注入的依赖都将表现得像Spring的单例bean作用域
+		// 这里实际上每太get到这个todo的点
 		if canNil(value) && isNil(value) {
+			// 如果canNil(是指针或者接口类型），则不能为nil，否则将造成一个空的引用实体进入graph
 			return nil, fmt.Errorf("register nil on name=%s, val=%v", name, value)
 		}
 		obj.Value = value
@@ -483,8 +490,8 @@ func (g *Graph) register(name string, value interface{}, singleton bool, skipFil
 
 // RegisterNoFill 注册对象但不进行依赖注入
 func (g *Graph) RegisterNoFill(name string, value interface{}) (interface{}, error) {
-	g.l.Lock()
-	defer g.l.Unlock()
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	return g.register(name, value, false, true)
 }
 
@@ -543,29 +550,29 @@ func (g *Graph) RegisterOrFailSingle(name string, value interface{}) interface{}
 
 // RegisterSingleNoFill 注册单例对象但不进行依赖注入
 func (g *Graph) RegisterSingleNoFill(name string, value interface{}) (interface{}, error) {
-	g.l.Lock()
-	defer g.l.Unlock()
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	return g.register(name, value, true, true)
 }
 
 // Register 注册对象并进行依赖注入
 func (g *Graph) Register(name string, value interface{}) (interface{}, error) {
-	g.l.Lock()
-	defer g.l.Unlock()
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	return g.register(name, value, false, false)
 }
 
 // RegisterSingle 注册单例对象并进行依赖注入
 func (g *Graph) RegisterSingle(name string, value interface{}) (interface{}, error) {
-	g.l.Lock()
-	defer g.l.Unlock()
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	return g.register(name, value, true, false)
 }
 
 // SPrint 返回图的字符串表示
 func (g *Graph) SPrint() string {
-	g.l.RLock()
-	defer g.l.RUnlock()
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 	return g.sPrint()
 }
 
@@ -590,8 +597,8 @@ func (g *Graph) sPrint() string {
 
 // SPrintTree 返回依赖树的字符串表示
 func (g *Graph) SPrintTree() string {
-	g.l.RLock()
-	defer g.l.RUnlock()
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 	buf := bytes.NewBufferString("dependence tree:\n")
 
 	len := g.container.Len()
@@ -674,8 +681,8 @@ func (g *Graph) sPrintTree(path string, o *Object, buf *bytes.Buffer) error {
 // function calls in main.exe
 // Close 关闭图中的所有对象，按照注册的逆序关闭
 func (g *Graph) Close() {
-	g.l.Lock()
-	defer g.l.Unlock()
+	g.mu.Lock()
+	defer g.mu.Unlock()
 
 	if g.Logger != nil {
 		g.Logger.Info("close objects %v", g.sPrint())
@@ -717,11 +724,6 @@ func (g *Graph) Close() {
 	if g.Logger != nil {
 		g.Logger.Info("inject graph closed all")
 	}
-}
-
-// isStructPtr 判断类型是否为结构体指针
-func isStructPtr(t reflect.Type) bool {
-	return t.Kind() == reflect.Ptr && t.Elem().Kind() == reflect.Struct
 }
 
 // ReflectRegFields 反射注册结构体字段

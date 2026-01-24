@@ -8,9 +8,9 @@ import (
 
 // Graph 依赖注入图结构，用于管理对象的注册和查找
 type Graph struct {
-	l         sync.RWMutex         // 读写锁
+	mu        sync.RWMutex         // 读写锁
 	container *orderMap.OrderedMap // 对象容器，用一个插入顺序的Map存储注入的对象
-	Logger    Logger
+	Logger    Logger               // 日志接口
 }
 
 // Object 表示注入的对象
