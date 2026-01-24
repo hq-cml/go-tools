@@ -16,8 +16,8 @@ type Graph struct {
 // Object 表示注入的对象
 type Object struct {
 	Name    string       // 对象名称
-	refType reflect.Type // 对象类型
-	Value   interface{}  // 承载对象值
+	refType reflect.Type // 对象的动态类型
+	Value   interface{}  // 承载对象本身
 	closed  bool         // 是否已关闭 ？？
 }
 
