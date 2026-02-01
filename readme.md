@@ -11,5 +11,5 @@
 10. metrics： go-metrics在Go性能指标度量中的应用
 11. static: 将一些静态资源文件，编译成go文件
 12. syncmap：官方syncMap库的注释版本
-13. order-map: 基于插入顺序的有序map
+13. order-map: 基于插入顺序的有序map（新插入的元素在队尾）
 14. injector: golang的注入器，类似于Java中的Ioc

@@ -4,7 +4,7 @@ import (
 	"fmt"
 )
 
-// OrderedMap 是一个有序映射结构，保持键值对的插入顺序
+// OrderedMap 是一个有序映射结构，保持键值对的插入顺序（新插入的元素在队尾）
 // 注意：键值对在有序映射中的顺序与插入顺序一致，而不是键的顺序！！！
 type OrderedMap struct {
 	store  map[interface{}]interface{} // 存储键值对的实际映射

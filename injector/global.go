@@ -1,5 +1,9 @@
 package injector
 
+/*
+ * 一个全局的使用方案，通常在main.go中直接使用
+ * 注意必须在main.go中先调用InitDefault()，否则会出现panic
+ */
 import "reflect"
 
 var _g *Graph

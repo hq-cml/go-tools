@@ -80,8 +80,8 @@ func GetAll() map[string][]reflect.Type {
 				continue
 			}
 			ret = append(ret, t)
-			mCopy[key] = ret
 		}
+		mCopy[key] = ret
 	}
 	return mCopy
 }

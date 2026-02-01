@@ -26,7 +26,7 @@ func (o Object) String() string {
 // NewGraph 创建新的依赖注入图
 // 本质上它是一个Map（带插入顺序的map），它的Key有两种情况：
 // refType => *Object
-// tagString => *Object  // 这里的tagString是`inject`
+// tagValue => *Object  // 这里的tagValue是`inject`
 func newGraph() *Graph {
 	g := &Graph{
 		container: orderMap.NewOrderedMap(),
@@ -65,7 +65,7 @@ func (g *Graph) find(name string) (*Object, bool) {
 	}
 	ret, ok := f.(*Object)
 	if !ok {
-		// g.named.Delete(name)
+		// g.container.Delete(name)
 		panic(fmt.Sprintf("%s in graph is not a *Object, should not happen!", name))
 		return nil, false
 	} else {
@@ -107,6 +107,7 @@ func (g *Graph) Find(name string) (*Object, bool) {
 }
 
 // del 删除指定名称的对象
+// 从Delete代码看，删除时安全的，key不存在也不会报错
 func (g *Graph) del(name string) {
 	g.container.Delete(name)
 }
@@ -116,8 +117,8 @@ func (g *Graph) set(name string, o *Object) {
 	g.container.Set(name, o)
 }
 
-// setboth 设置name的同时，如果如果o.refType是对象指针，则设置类型
-// （因为graph同时支持按照inject tag和类型注册查找）
+// setboth 在graph中注册name的同时；如果如果o.refType是指向结构的指针，则注册类型
+// （因为graph同时支持按照inject tag和类型注册查找） // TODO why? 为什么只有结构指针有这个逻辑，test
 func (g *Graph) setboth(name string, o *Object) {
 	g.container.Set(name, o)
 	if isStructPtr(o.refType) {
@@ -127,6 +128,8 @@ func (g *Graph) setboth(name string, o *Object) {
 }
 
 // isZeroOfUnderlyingType 判断一个接口变量的底层类型是否为零值
+// 引用类型：返回是否为nil或者len==0
+// 非引用类型：返回是否为零值
 func isZeroOfUnderlyingType(x interface{}) bool {
 	if x == nil {
 		return true
@@ -187,10 +190,10 @@ func isStructPtr(t reflect.Type) bool {
 // register 核心实现：注册一个对象到图中
 // 参数:
 //
-//	name      - 对象名称（通常来说，它是一个inject tag)，如果为空且value是结构体指针，则使用类型名
-//	value     - 要注册的对象值，如果value是nil的，会自动化创建空结构，并且本逻辑是递归的
-//	singleton - 是否为单例模式，TODO 测试
-//	skipFill  - 顶层意愿，是否跳过填充结构体的子字段，通常这个参数常用的是false
+//	name      - 对象名称（通常来说，它是一个inject tag)，如果为空且value是结构体指针，则程序自动使用类型名
+//	value     - 要注册的对象值，如果value是nil的，会自动化创建空结构，并且本逻辑是递归的（也就是注册到图中的字段，不能是Nil的）
+//	singleton - 是否为单例模式，（如果是单例模式，则会调用setBoth，注册name的同时注册类型），TODO 测试
+//	skipFill  - 顶层意愿，是否跳过填充&注册结构体的子字段，通常这个参数常用的是false
 //	 如果是true，则跳过填充子字段（无需创建的时候）；
 //	 如果为false，则无条件填充子字段
 //
@@ -215,6 +218,7 @@ func (g *Graph) register(name string, value interface{}, singleton bool, skipFil
 	// 检查是否已注册
 	found, ok := g.find(name)
 	if ok {
+		// TODO 测试，这里为什么不需要check singleton再给一次机会？
 		return nil, fmt.Errorf("already registered,name=%s,type=%v,found=%v", name, reflectType, found)
 	}
 
@@ -243,7 +247,7 @@ func (g *Graph) register(name string, value interface{}, singleton bool, skipFil
 		// t：是实际结构体的reflect.Type
 		// v：是实际结构体的指针的reflect.Value，所以它需要v.Elem()才能真正得到结构体的reflect.Value
 
-		// 遍历结构体字段进行依赖注入
+		// 遍历结构体字段进行填充 & 注入
 		for i := 0; i < t.NumField(); i++ {
 			// 如果不需要创建 and 顶层意愿是跳过字段填充=> 跳过填充
 			if !needCreate && skipFill {
@@ -304,17 +308,18 @@ func (g *Graph) register(name string, value interface{}, singleton bool, skipFil
 				// 先按照tag来查找，如果找不到且还是单例模式，则按照类型再给一次查找机会
 				found, ok = g.find(injectTag)
 				if !ok && singletonTag && isStructPtr(fieldType.Type) {
+					// TODO 测试 debug
 					found, ok = g.findByType(fieldType.Type)
 				}
 			} else {
 				found, ok = g.findByType(fieldType.Type)
 			}
 
-			// 如果在当前graph中找不到，说明没有前置注册过，则递归得去动态注入
+			// 如果在当前graph中找不到，说明没有前置注册过，则递归得去创建 & 动态注入
 			if !ok || found == nil {
 				// 如果允许为nil，说明容忍nil，则不会动态注入
-				// TODO 测试
 				if canNil {
+					// TODO 测试 debug
 					continue
 				}
 
@@ -330,8 +335,8 @@ func (g *Graph) register(name string, value interface{}, singleton bool, skipFil
 						return nil, err
 					}
 				} else {
-					// 到此，f.Type不是一个指针，那大概率是一个接口之类的，需要去implmap中寻找
-					// TODO 为什么不会是其他普通类型？
+					// 到此，f.Type不是一个指针，那大概率是一个接口之类的，需要去implmap中寻找类型指引
+					// TODO 为什么不会是其他普通类型？debug
 					var implFound reflect.Type
 					impls := implmap.Get(injectTag)
 
@@ -348,7 +353,7 @@ func (g *Graph) register(name string, value interface{}, singleton bool, skipFil
 					}
 
 					// 在implmap中找到了符合要求的实现，则继续注册
-					// 根据implmap的实现，凡事登记进去的impl，必然是一个结构体指针
+					// 根据implmap的实现，凡是登记进去的impl，必然是一个结构体指针
 					if implFound != nil {
 						_, err := g.register(injectTag, reflect.NewAt(implFound.Elem(), nil).Interface(), singletonTag, skipFill)
 						if err != nil {
@@ -377,7 +382,7 @@ func (g *Graph) register(name string, value interface{}, singleton bool, skipFil
 			}
 
 			// 这里有点晦涩，如果成功找到了，只能说明是在graph中动态注册了，但是实际上此时字段本身还是空着
-			// 所以，需要设置fieldValue（具体字段的reflect.Value）
+			// 仍然需要字段本身填充，所以，需要设置fieldValue（具体字段的reflect.Value）
 			// 先类型检查，相当于是检查自动动态化注册的对象的类型，和目标字段的类型是否一致
 			// 如果不一致，则需要抢救一下，比如对于数字系列，强转确保类型匹配
 			reflectFoundValue := reflect.ValueOf(found.Value)
@@ -488,19 +493,14 @@ func (g *Graph) register(name string, value interface{}, singleton bool, skipFil
 	return obj.Value, nil
 }
 
-// RegisterNoFill 注册对象但不进行依赖注入
+// RegisterNoFill 注册对象但可以不进行子字段填充&注册
 func (g *Graph) RegisterNoFill(name string, value interface{}) (interface{}, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.register(name, value, false, true)
 }
 
-// RegWithoutInjection 注册对象但不进行依赖注入
-func (g *Graph) RegWithoutInjection(name string, value interface{}) interface{} {
-	return g.RegisterOrFailNoFill(name, value)
-}
-
-// RegisterOrFailNoFill 注册对象但不进行依赖注入，失败时panic
+// RegisterOrFailNoFill 注册对象但不进行子字段填充&注册，失败时panic
 func (g *Graph) RegisterOrFailNoFill(name string, value interface{}) interface{} {
 	v, err := g.RegisterNoFill(name, value)
 	if err != nil {
@@ -512,7 +512,19 @@ func (g *Graph) RegisterOrFailNoFill(name string, value interface{}) interface{}
 	return v
 }
 
-// RegisterOrFailSingleNoFill 注册单例对象但不进行依赖注入，失败时panic
+// RegWithoutInjection 注册对象但不进行子字段填充&注册
+func (g *Graph) RegWithoutInjection(name string, value interface{}) interface{} {
+	return g.RegisterOrFailNoFill(name, value)
+}
+
+// RegisterSingleNoFill 注册单例对象但不进行子字段填充&注册
+func (g *Graph) RegisterSingleNoFill(name string, value interface{}) (interface{}, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.register(name, value, true, true)
+}
+
+// RegisterOrFailSingleNoFill 注册单例对象但不进行子字段填充&注册，失败时panic
 func (g *Graph) RegisterOrFailSingleNoFill(name string, value interface{}) interface{} {
 	v, err := g.RegisterSingleNoFill(name, value)
 	if err != nil {
@@ -524,6 +536,15 @@ func (g *Graph) RegisterOrFailSingleNoFill(name string, value interface{}) inter
 	return v
 }
 
+// 常用：
+// Register 注册对象并进行依赖注入
+func (g *Graph) Register(name string, value interface{}) (interface{}, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.register(name, value, false, false)
+}
+
+// 常用：
 // RegisterOrFail 注册对象并进行依赖注入，失败时panic
 func (g *Graph) RegisterOrFail(name string, value interface{}) interface{} {
 	v, err := g.Register(name, value)
@@ -536,6 +557,13 @@ func (g *Graph) RegisterOrFail(name string, value interface{}) interface{} {
 	return v
 }
 
+// RegisterSingle 注册单例对象并进行依赖注入
+func (g *Graph) RegisterSingle(name string, value interface{}) (interface{}, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.register(name, value, true, false)
+}
+
 // RegisterOrFailSingle 注册单例对象并进行依赖注入，失败时panic
 func (g *Graph) RegisterOrFailSingle(name string, value interface{}) interface{} {
 	v, err := g.RegisterSingle(name, value)
@@ -546,34 +574,6 @@ func (g *Graph) RegisterOrFailSingle(name string, value interface{}) interface{}
 		panic(fmt.Sprintf("reg fail,name=%v,err=%v", name, err.Error()))
 	}
 	return v
-}
-
-// RegisterSingleNoFill 注册单例对象但不进行依赖注入
-func (g *Graph) RegisterSingleNoFill(name string, value interface{}) (interface{}, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.register(name, value, true, true)
-}
-
-// Register 注册对象并进行依赖注入
-func (g *Graph) Register(name string, value interface{}) (interface{}, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.register(name, value, false, false)
-}
-
-// RegisterSingle 注册单例对象并进行依赖注入
-func (g *Graph) RegisterSingle(name string, value interface{}) (interface{}, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.register(name, value, true, false)
-}
-
-// SPrint 返回图的字符串表示
-func (g *Graph) SPrint() string {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	return g.sPrint()
 }
 
 // sPrint 返回图的字符串表示（内部方法，不加锁）
@@ -595,26 +595,11 @@ func (g *Graph) sPrint() string {
 	return ret
 }
 
-// SPrintTree 返回依赖树的字符串表示
-func (g *Graph) SPrintTree() string {
+// SPrint 返回图的字符串表示
+func (g *Graph) SPrint() string {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	buf := bytes.NewBufferString("dependence tree:\n")
-
-	len := g.container.Len()
-	i := 0
-	iter := g.container.IterFunc()
-	for kv, ok := iter(); ok; kv, ok = iter() {
-		head := "├── "
-		if i == 0 {
-			head = "┌── "
-		} else if i == len-1 {
-			head = "└── "
-		}
-		i++
-		g.sPrintTree(head, kv.Value.(*Object), buf)
-	}
-	return buf.String()
+	return g.sPrint()
 }
 
 // sPrintTree 递归打印依赖树
@@ -674,12 +659,34 @@ func (g *Graph) sPrintTree(path string, o *Object, buf *bytes.Buffer) error {
 	return nil
 }
 
+// SPrintTree 返回依赖树的字符串表示
+func (g *Graph) SPrintTree() string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	buf := bytes.NewBufferString("dependence tree:\n")
+
+	len := g.container.Len()
+	i := 0
+	iter := g.container.IterFunc()
+	for kv, ok := iter(); ok; kv, ok = iter() {
+		head := "├── "
+		if i == 0 {
+			head = "┌── "
+		} else if i == len-1 {
+			head = "└── "
+		}
+		i++
+		g.sPrintTree(head, kv.Value.(*Object), buf)
+	}
+	return buf.String()
+}
+
 // beaware of the close order when use g.Close!
-// every *Object will be Closed on reverse order
-// of the Register
-// there should be no defer xx.Close betwen g.Register
-// function calls in main.exe
+// every *Object will be Closed on reverse order of the Register
+// there should be no defer xx.Close betwen g.Register function calls in main.exe
 // Close 关闭图中的所有对象，按照注册的逆序关闭
+//
+// TODO 何处调用
 func (g *Graph) Close() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -688,7 +695,7 @@ func (g *Graph) Close() {
 		g.Logger.Info("close objects %v", g.sPrint())
 	}
 	var keys []string
-	iter := g.container.RevIterFunc()
+	iter := g.container.RevIterFunc() //逆序，也就是后插入的对象先关闭
 	for kv, ok := iter(); ok; kv, ok = iter() {
 		k, ok := kv.Key.(string)
 		if !ok {
