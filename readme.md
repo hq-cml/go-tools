@@ -13,3 +13,4 @@
 12. syncmap：官方syncMap库的注释版本
 13. order-map: 基于插入顺序的有序map（新插入的元素在队尾）
 14. injector: golang的注入器，类似于Java中的Ioc
+15. logger: 一个日志库，封装log4go
