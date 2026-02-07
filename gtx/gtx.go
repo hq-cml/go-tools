@@ -1,0 +1,133 @@
+package gtx
+
+import (
+	"encoding/json"
+	"fmt"
+	cmap "github.com/orcaman/concurrent-map"
+)
+
+
+type Gtx struct {
+	goCtxMap cmap.ConcurrentMap
+}
+
+var _gtx *Gtx
+
+func init() {
+	_gtx = &Gtx{
+		goCtxMap: cmap.New(),
+	}
+}
+
+func Init4Current() {
+	goid := GetGoId()
+	gtx, ok := _gtx.goCtxMap.Get(fmt.Sprint(goid))
+	if !ok || gtx == nil {
+		gtx = make(map[interface{}]interface{})
+		_gtx.goCtxMap.Set(fmt.Sprint(goid), gtx)
+	}
+}
+
+func Clear4Current() {
+	goid := GetGoId()
+	_gtx.goCtxMap.Remove(fmt.Sprint(goid))
+}
+
+func GetCurrCtx()(map[interface{}]interface{}, bool) {
+	goid := GetGoId()
+	m, ok := _gtx.goCtxMap.Get(fmt.Sprint(goid))
+	if !ok {
+		return nil, false
+	}
+	if gtx, ok := m.(map[interface{}]interface{}); ok {
+		return gtx, true
+	} else {
+		return nil, false
+	}
+}
+
+// 当前goroutine是否存在gtx，也就是是否被Init过
+func Exist4Current() bool {
+	_, ok := GetCurrCtx()
+	return ok
+}
+
+func Get(key interface{}) (interface{}, bool) {
+	gtx, ok := GetCurrCtx()
+	 if !ok {
+		return nil, false
+	}
+	ret, ok := gtx[key], true
+	return ret, ok
+}
+
+func Set(key interface{}, value interface{}) {
+	gtx, ok := GetCurrCtx()
+	if !ok {
+		return
+	}
+	gtx[key] = value
+}
+
+func Del(key interface{}) {
+	gtx, ok := GetCurrCtx()
+	if !ok {
+		return
+	}
+	delete(gtx, key)
+}
+
+// key对应的值加value
+// 如果key对应的值不存在，则初始化为0
+// 返回自增之前的值
+func Incr(key interface{}, value int) int {
+	gtx, ok := GetCurrCtx()
+	if !ok {
+		Init4Current()
+		gtx, _ = GetCurrCtx()
+	}
+	v, ok := gtx[key]
+	if !ok {
+		gtx[key] = value
+		return 0
+	}
+	vc, ok := v.(int)
+	if !ok {
+		gtx[key] = value
+		return 0
+	}
+	gtx[key] = vc + value
+	return vc
+}
+
+// key对应的值减value
+// 如果key对应的值不存在，则初始化为0
+// 返回自减之前的值
+func Decr(key interface{}, value int) int {
+	gtx, ok := GetCurrCtx()
+	if !ok {
+		Init4Current()
+		gtx, _ = GetCurrCtx()
+	}
+	v, ok := gtx[key]
+	if !ok {
+		gtx[key] = -value
+		return 0
+	}
+	vc, ok := v.(int)
+	if !ok {
+		gtx[key] = -value
+		return 0
+	}
+	gtx[key] = vc - value
+	return vc
+}
+
+func JsonCurrent() string {
+	gtx, ok := GetCurrCtx()
+	if !ok {
+		return "{}"
+	}
+	s, _ := json.Marshal(gtx)
+	return string( s)
+}

@@ -10,6 +10,7 @@ require (
 	github.com/labstack/echo v3.3.10+incompatible
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/oliveagle/jsonpath v0.0.0-20180606110733-2e52cf6e6852
+	github.com/orcaman/concurrent-map v1.0.0 // indirect
 	github.com/panjf2000/ants/v2 v2.4.7
 	github.com/pkg/errors v0.9.1
 	github.com/rakyll/statik v0.1.7

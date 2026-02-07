@@ -1,4 +1,4 @@
-一些有趣、简单、实用的go的库
+一些实用的go工具的库
 1. ants：协程池
 2. bigcache：本地缓存
 3. cast：各种基础类型转换，省去断言的麻烦
@@ -14,4 +14,4 @@
 13. order-map: 基于插入顺序的有序map（新插入的元素在队尾）
 14. injector: golang的注入器，类似于Java中的Ioc
 15. logger: 一个日志库，封装log4go
-15. goroutine-ctx: go协程全局级别的context，可以避免显式得传参ctx
+15. gtx: goroutine ctx，go协程别的context，可以避免显式得传参ctx
