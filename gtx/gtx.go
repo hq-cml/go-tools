@@ -6,7 +6,6 @@ import (
 	cmap "github.com/orcaman/concurrent-map"
 )
 
-
 type Gtx struct {
 	goCtxMap cmap.ConcurrentMap
 }
@@ -33,7 +32,7 @@ func Clear4Current() {
 	_gtx.goCtxMap.Remove(fmt.Sprint(goid))
 }
 
-func GetCurrCtx()(map[interface{}]interface{}, bool) {
+func GetCurrCtx() (map[interface{}]interface{}, bool) {
 	goid := GetGoId()
 	m, ok := _gtx.goCtxMap.Get(fmt.Sprint(goid))
 	if !ok {
@@ -54,7 +53,7 @@ func Exist4Current() bool {
 
 func Get(key interface{}) (interface{}, bool) {
 	gtx, ok := GetCurrCtx()
-	 if !ok {
+	if !ok {
 		return nil, false
 	}
 	ret, ok := gtx[key]
@@ -90,7 +89,7 @@ func Incr(key interface{}, value int) (int, bool) {
 	v, ok := gtx[key]
 	if !ok {
 		gtx[key] = value
-		return 0,  true
+		return 0, true
 	}
 	vc, ok := v.(int)
 	if !ok {
@@ -112,12 +111,12 @@ func Decr(key interface{}, value int) (int, bool) {
 	v, ok := gtx[key]
 	if !ok {
 		gtx[key] = -value
-		return 0,  true
+		return 0, true
 	}
 	vc, ok := v.(int)
 	if !ok {
 		gtx[key] = -value
-		return 0,  true
+		return 0, true
 	}
 	gtx[key] = vc - value
 	return vc, true
@@ -128,8 +127,20 @@ func JsonCurrent() string {
 	if !ok {
 		return "{}"
 	}
-	s, _ := json.Marshal(gtx)
-	return string( s)
+	// 转换为 map[string]interface{} 以便 JSON 序列化
+	converted := make(map[string]interface{})
+	for k, v := range gtx {
+		if keyStr, ok := k.(string); ok {
+			converted[keyStr] = v
+		} else {
+			converted[fmt.Sprintf("%v", k)] = v
+		}
+	}
+	s, err := json.Marshal(converted)
+	if err != nil {
+		return "{}"
+	}
+	return string(s)
 }
 
 // GoWithGtx 安全地启动一个带有gtx的goroutine
