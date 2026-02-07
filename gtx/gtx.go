@@ -57,70 +57,70 @@ func Get(key interface{}) (interface{}, bool) {
 	 if !ok {
 		return nil, false
 	}
-	ret, ok := gtx[key], true
+	ret, ok := gtx[key]
 	return ret, ok
 }
 
-func Set(key interface{}, value interface{}) {
+func Set(key interface{}, value interface{}) bool {
 	gtx, ok := GetCurrCtx()
 	if !ok {
-		return
+		return false
 	}
 	gtx[key] = value
+	return true
 }
 
-func Del(key interface{}) {
+func Del(key interface{}) bool {
 	gtx, ok := GetCurrCtx()
 	if !ok {
-		return
+		return false
 	}
 	delete(gtx, key)
+	return true
 }
 
 // key对应的值加value
 // 如果key对应的值不存在，则初始化为0
 // 返回自增之前的值
-func Incr(key interface{}, value int) int {
+func Incr(key interface{}, value int) (int, bool) {
 	gtx, ok := GetCurrCtx()
 	if !ok {
-		Init4Current()
-		gtx, _ = GetCurrCtx()
+		return 0, false
 	}
 	v, ok := gtx[key]
 	if !ok {
 		gtx[key] = value
-		return 0
+		return 0,  true
 	}
 	vc, ok := v.(int)
 	if !ok {
 		gtx[key] = value
-		return 0
+		return 0, true
 	}
 	gtx[key] = vc + value
-	return vc
+	return vc, true
 }
 
 // key对应的值减value
 // 如果key对应的值不存在，则初始化为0
 // 返回自减之前的值
-func Decr(key interface{}, value int) int {
+func Decr(key interface{}, value int) (int, bool) {
 	gtx, ok := GetCurrCtx()
 	if !ok {
-		Init4Current()
-		gtx, _ = GetCurrCtx()
+		return 0, false
 	}
 	v, ok := gtx[key]
 	if !ok {
 		gtx[key] = -value
-		return 0
+		return 0,  true
 	}
 	vc, ok := v.(int)
 	if !ok {
 		gtx[key] = -value
-		return 0
+		return 0,  true
 	}
 	gtx[key] = vc - value
-	return vc
+	return vc, true
 }
 
 func JsonCurrent() string {

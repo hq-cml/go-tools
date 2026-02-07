@@ -12,7 +12,6 @@ import (
 func GetGoId() int {
 	var buf [64]byte
 	n := runtime.Stack(buf[:], false)
-	fmt.Println(string(buf[:n]))
 	// 提取 goroutine 后的数字
 	idField := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
 	id, err := strconv.Atoi(idField)
