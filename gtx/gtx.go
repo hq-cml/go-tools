@@ -131,3 +131,26 @@ func JsonCurrent() string {
 	s, _ := json.Marshal(gtx)
 	return string( s)
 }
+
+// GoWithGtx 安全地启动一个带有gtx的goroutine
+// 自动处理Init和Clear，避免内存泄漏
+func GoWithGtx(fn func()) {
+	go func() {
+		defer Clear4Current()
+		Init4Current()
+		fn()
+	}()
+}
+
+// GoWithGtxReturn 安全地启动一个带有gtx的goroutine，支持返回值
+// 自动处理Init和Clear，避免内存泄漏
+func GoWithGtxReturn(fn func() interface{}) chan interface{} {
+	result := make(chan interface{}, 1)
+	go func() {
+		defer Clear4Current()
+		Init4Current()
+		result <- fn()
+		close(result)
+	}()
+	return result
+}
