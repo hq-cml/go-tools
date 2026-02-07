@@ -3,7 +3,7 @@ module github.com/hq-cml/go-tools
 go 1.13
 
 require (
-	github.com/alecthomas/log4go v0.0.0-20180109082532-d146e6b86faa // indirect
+	github.com/alecthomas/log4go v0.0.0-20180109082532-d146e6b86faa
 	github.com/allegro/bigcache/v3 v3.0.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
 	github.com/facebookgo/structtag v0.0.0-20150214074306-217e25fb9691

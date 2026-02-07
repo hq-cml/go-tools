@@ -14,3 +14,4 @@
 13. order-map: 基于插入顺序的有序map（新插入的元素在队尾）
 14. injector: golang的注入器，类似于Java中的Ioc
 15. logger: 一个日志库，封装log4go
+15. goroutine-ctx: go协程全局级别的context，可以避免显式得传参ctx
