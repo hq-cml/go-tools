@@ -5,6 +5,7 @@ GTX 是一个 Go 语言库，为每个 Goroutine 提供独立的键值存储空�
 ## 特性
 
 - 🚀 轻量级，基于 [concurrent-map](https://github.com/orcaman/concurrent-map) 实现线程安全
+- ⚡ 高性能 Goroutine ID 获取（默认汇编直读 `g.goid`，纳秒级）
 - 🔒 基于 Goroutine ID 隔离数据，每个 goroutine 拥有独立的存储空间
 - 🛡️ 提供安全包装函数 `GoWithGtx`，自动防止内存泄漏
 - 📊 支持计数器操作（Incr/Decr）
@@ -19,6 +20,7 @@ go get github.com/hq-cml/go-tools/gtx
 
 依赖：
 - `github.com/orcaman/concurrent-map` - 线程安全的并发 Map
+- `github.com/petermattis/goid` - 高性能 Goroutine ID 获取（汇编直读 `g.goid`）
 
 ## 快速开始
 
@@ -119,6 +121,37 @@ val := <-result  // 42
 #### `Exist4Current() bool`
 检查当前 goroutine 是否已初始化上下文。
 
+### 基础操作
+
+#### `Set(key interface{}, value interface{}) bool`
+在当前 goroutine 上下文中存储一个键值对。未初始化时返回 `false`。
+
+```go
+gtx.Set("user", "Alice")
+```
+
+#### `Get(key interface{}) (interface{}, bool)`
+读取当前 goroutine 上下文中的值。未初始化或 key 不存在时返回 `false`。
+
+#### `Del(key interface{}) bool`
+删除当前 goroutine 上下文中的 key。
+
+#### `Incr(key interface{}, value int) (int, bool)`
+计数器自增，返回自增**之前**的值；key 不存在或类型不匹配时初始化为 `value`。
+
+#### `Decr(key interface{}, value int) (int, bool)`
+计数器自减，返回自减**之前**的值；key 不存在或类型不匹配时初始化为 `-value`。
+
+### Goroutine ID
+
+#### `GetGoId() int`
+获取当前 goroutine 的 ID。提供两种实现，通过 `DefaultUse` 常量切换：
+
+| DefaultUse | 实现 | 说明 |
+|------------|------|------|
+| 2（默认） | `github.com/petermattis/goid` | 汇编直读 `g.goid` 字段，纳秒级，推荐 |
+| 1 | 解析 `runtime.Stack` | 存在兼容性隐患且性能差，仅作对比/备用 |
+
 ### 高级功能
 
 #### `GetCurrCtx() (map[interface{}]interface{}, bool)`
@@ -138,6 +171,11 @@ fmt.Println(gtx.JsonCurrent())  // {"user":"Alice","age":30}
 ### 1. HTTP 请求上下文传递
 
 ```go
+func main() {
+    http.Handle("/", middleware(http.HandlerFunc(handler)))
+    http.ListenAndServe(":8080", nil)
+}
+
 func middleware(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         gtx.GoWithGtx(func() {
@@ -179,18 +217,33 @@ func step1() {
 
 ### 3. 计数器/统计
 
+无需层层传递计数器参数，调用链中任意深度的函数都能累加，最后统一读取统计结果：
+
 ```go
-gtx.GoWithGtx(func() {
-    // 处理多个任务，统计处理数量
-    for i := 0; i < 100; i++ {
-        processItem(i)
-        gtx.Incr("processed_count", 1)
-    }
-    
-    if count, ok := gtx.Get("processed_count"); ok {
-        fmt.Printf("总共处理了 %v 个任务\n", count)
-    }
-})
+func processOrder() {
+    gtx.GoWithGtx(func() {
+        fetch()
+        parse()
+        save()
+
+        if count, ok := gtx.Get("processed_count"); ok {
+            fmt.Printf("本次共处理 %v 个步骤\n", count)
+        }
+    })
+}
+
+func fetch() {
+    // 多级调用链中累加
+    gtx.Incr("processed_count", 1)
+}
+
+func parse() {
+    gtx.Incr("processed_count", 1)
+}
+
+func save() {
+    gtx.Incr("processed_count", 1)
+}
 ```
 
 ## 注意事项
@@ -220,7 +273,7 @@ gtx 数据仅在单个 goroutine 生命周期内有效，goroutine 结束后数�
 
 ### 4. 性能考虑
 
-- `GetGoId()` 通过解析 `runtime.Stack` 获取 goroutine ID，有一定开销
+- `GetGoId()` 默认通过汇编直接读取 `g.goid` 字段，纳秒级开销（比 `runtime.Stack` 方案快约 1000 倍）；`runtime.Stack` 方案可通过 `DefaultUse = 1` 切换
 - 高频调用场景建议缓存需要的值到局部变量
 - 大数据量存储建议使用专门的数据库或缓存服务
 

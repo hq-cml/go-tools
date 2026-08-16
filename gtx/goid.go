@@ -2,41 +2,33 @@ package gtx
 
 import (
 	"fmt"
+	goid "github.com/petermattis/goid"
 	"runtime"
 	"strconv"
 	"strings"
-	// "github.com/v2pro/plz/gls"
 )
 
-// GetGoId 在runtime的Stack中，获取当前goroutine的ID
+// TODO 如果需要改变，后期通过注入变量的形式实现
+const (
+	DefaultUse = 2
+)
+
+// GetGoId 。两种实现思路
+// 方案1：在runtime的Stack中，获取当前goroutine的ID，存在兼容性隐患且性能差
+// 方案2：使用 github.com/petermattis/goid 库获取当前goroutine的ID
+//       在amd64等主流架构上通过汇编直接读取g.goid字段，性能远优于GetGoId的runtime.Stack方案
 func GetGoId() int {
-	var buf [128]byte
-	n := runtime.Stack(buf[:], false)
-	// 提取 goroutine 后的数字
-	idField := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
-	id, err := strconv.Atoi(idField)
-	if err != nil {
-		panic(fmt.Sprintf("cannot get goroutine id: %v", err))
+	if DefaultUse == 1 {
+		var buf [128]byte
+		n := runtime.Stack(buf[:], false)
+		// 提取 goroutine 后的数字
+		idField := strings.Fields(strings.TrimPrefix(string(buf[:n]), "goroutine "))[0]
+		id, err := strconv.Atoi(idField)
+		if err != nil {
+			panic(fmt.Sprintf("cannot get goroutine id: %v", err))
+		}
+		return id
+	} else {
+		return int(goid.Get())
 	}
-	return id
 }
-
-// 开源版本
-// import "github.com/v2pro/plz/gls"
-// func GetGoroutineID() int {
-// 	return int(gls.GoID())
-// }
-
-// 对比测试
-// func main() {
-// 	for i := 0; i < 1000; i++ {
-// 		go func() {
-// 			if gtx.GetGoroutineID() != gtx.GetGoId() {
-// 				panic("goroutine id != goid")
-// 			}
-// 			fmt.Println(gtx.GetGoroutineID(), gtx.GetGoId())
-// 		}()
-// 	}
-// 	fmt.Println(gtx.GetGoroutineID(), gtx.GetGoId())
-// 	time.Sleep(time.Second)
-// }
