@@ -1,8 +1,8 @@
 package future
 
 const (
-	LogId   = "log_id"    // 日志ID、traceId
-	LaneTag = "lane_tag"  // 流量永道标记
+	LogId   = "log_id"   // 日志ID、traceId
+	LaneTag = "lane_tag" // 流量泳道标记
 )
 
 // Logger 日志接口，用于记录 Future 执行耗时等信息。

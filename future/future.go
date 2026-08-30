@@ -10,7 +10,6 @@ import (
 	"github.com/hq-cml/go-tools/recover"
 )
 
-
 // Value 允许返回任意类型的结果
 type Value interface{}
 
@@ -30,7 +29,7 @@ var ErrTimeout = context.DeadlineExceeded
 // Returned when a Future has be canceled
 var ErrCanceled = context.Canceled
 
-// Returned when a Future has been call Get before
+// Returned when a Future has been consumed by a previous Get call
 var ErrEmpty = errors.New("empty result")
 
 type Future struct {
@@ -45,6 +44,9 @@ type result struct {
 // NewFuture 创建并启动一个独立的 Future。fc 将被异步调用，
 // 通过返回的 FutureIntfs 的 Get/GetWithTimeout/GetWithContext 获取结果。
 // 可通过 opts 传入 WithLogger、WithGtxKeys 等选项。
+//
+// 注意：Future 的结果只可被消费一次，多次或并发调用 Get 时仅有一个调用方能
+// 拿到结果，其余将返回 ErrEmpty。
 func NewFuture(fc func() (Value, error), opts ...Option) FutureIntfs {
 	return startFuture(fc, nil, newConfig(opts))
 }
@@ -60,15 +62,26 @@ func (f *Future) GetWithTimeout(timeout time.Duration) (Value, error) {
 }
 
 func (f *Future) GetWithContext(ctx context.Context) (Value, error) {
+	// 结果已就绪时优先返回，避免结果与 ctx.Done 同时就绪时被 select 随机丢弃
+	select {
+	case ret := <-f.result:
+		return f.unpack(ret)
+	default:
+	}
+
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case ret := <-f.result:
-		if ret == nil {
-			return nil, ErrEmpty
-		}
-		return ret.value, ret.err
+		return f.unpack(ret)
 	}
+}
+
+func (f *Future) unpack(ret *result) (Value, error) {
+	if ret == nil {
+		return nil, ErrEmpty
+	}
+	return ret.value, ret.err
 }
 
 // 底层内核
@@ -124,11 +137,13 @@ func startFuture(fc func() (Value, error), onExit func(), cfg *futureCFG) *Futur
 		}()
 
 		// 实际执行 & 附带异常恢复
-		paincerr := recover.WithRecover(func() {
+		// 注意：panic 会被 recover.WithRecover 包装为带堆栈的字符串错误，
+		// 原始 panic 值的类型将丢失，调用方无法用 errors.Is/As 判断底层错误。
+		panicErr := recover.WithRecover(func() {
 			value, err = fc()
 		}, nil)
-		if paincerr != nil {
-			err = fmt.Errorf("panic recover:%v", paincerr)
+		if panicErr != nil {
+			err = fmt.Errorf("panic recover:%v", panicErr)
 		}
 	}()
 
