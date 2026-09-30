@@ -172,7 +172,7 @@ func TestGetTokenPublicExhaust(t *testing.T) {
 	ftb := NewFlowTokenIdInit("h", 3, 3, trigger_failrate)
 	ftb.mu.Lock()
 	ftb.lastTimeSec = 1 << 62 // 阻止秒级刷新
-	ftb.tokenNum = 0 // 模拟耗尽
+	ftb.tokenNum = 0          // 模拟耗尽
 	ftb.mu.Unlock()
 
 	_, err := ftb.GetToken()
@@ -283,7 +283,7 @@ func TestRefreshAllSuccGrowOnErrCnt(t *testing.T) {
 	}
 }
 
-//增长被 cwndMax 截断
+// 增长被 cwndMax 截断
 func TestRefreshAllSuccCwndMaxClamp(t *testing.T) {
 	ftb := newPrimed(t, 4000, 3)
 	ftb.SetCwndMax(5000)

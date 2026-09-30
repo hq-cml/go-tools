@@ -99,21 +99,7 @@ func NewFlowTokenId(hostId string) *FlowTokenBucket {
 // initTokenNum: 初始令牌数（即初始窗口大小和ssthresh初始值）
 // failLimit: 失败阈值，会被限制在 [1, 199] 范围内
 func NewFlowTokenIdInit(hostId string, initTokenNum, failLimit int64, triggerFailrate float64) *FlowTokenBucket {
-	if failLimit >= 200 {
-		failLimit = 199
-	}
-	if failLimit <= 0 {
-		failLimit = fail_limit
-	}
-	if triggerFailrate <= 0 || triggerFailrate >= 1 {
-		triggerFailrate = trigger_failrate
-	}
-	if triggerFailrate > 0.4 {
-		triggerFailrate = 0.4
-	}
-	if initTokenNum > default_cwnd_max {
-		initTokenNum = default_cwnd_max
-	}
+	initTokenNum, failLimit, triggerFailrate = normalizeInit(initTokenNum, failLimit, triggerFailrate)
 
 	t := &FlowTokenBucket{
 		hostId: hostId,
@@ -127,6 +113,30 @@ func NewFlowTokenIdInit(hostId string, initTokenNum, failLimit int64, triggerFai
 	}
 	log.Info("create flowtoken bucket %s", hostId)
 	return t
+}
+
+// normalizeInit 归一化初始化参数，返回落在合法范围内的值
+// failLimit 限制在 [1,199]；triggerFailrate 限制在 (0, 0.4]；initTokenNum 限制在 (0, default_cwnd_max]
+func normalizeInit(initTokenNum, failLimit int64, triggerFailrate float64) (int64, int64, float64) {
+	if failLimit >= 200 {
+		failLimit = 199
+	}
+	if failLimit <= 0 {
+		failLimit = fail_limit
+	}
+	if triggerFailrate <= 0 || triggerFailrate >= 1 {
+		triggerFailrate = trigger_failrate
+	}
+	if triggerFailrate > 0.4 {
+		triggerFailrate = 0.4
+	}
+	if initTokenNum <= 0 {
+		initTokenNum = init_token_num
+	}
+	if initTokenNum > default_cwnd_max {
+		initTokenNum = default_cwnd_max
+	}
+	return initTokenNum, failLimit, triggerFailrate
 }
 
 // GetTriggerSuccrate 返回触发"全成功"判断的成功率阈值 = 1 - triggerFailrate
