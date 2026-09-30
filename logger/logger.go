@@ -16,6 +16,9 @@ func init() {
 	Logger = log4go.NewLogger()
 }
 
+// 注意这里如果不执行这个，也不会出现panic，只是日志不生效
+// 因为空的logger里面没有任何filter，所以日志不会被输出，但是也不会报错
+// LoadConfiguration方法则会实际append filter
 func LoadConfiguration(path string) {
 	Logger.LoadConfiguration(path)
 }
